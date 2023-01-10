@@ -2,10 +2,8 @@ import serial
 import binascii
 import time
 from enum import Enum, auto
+import threading
 from argparse import ArgumentParser
-
-parser = ArgumentParser()
-parser.add_argument("-p","--port", help="serial port path", required=True)
 
 class Register(Enum):
     STATUS = ('00', '00')
@@ -61,6 +59,7 @@ class Laser:
     register = ''
     count = ''
     payload = ''
+    is_running = True
 
     def __init__(self, port, baudrate = 19200):
         self.device = serial.Serial()
@@ -79,8 +78,8 @@ class Laser:
 
                 count = self.device.in_waiting
                 if  count > 0:
-                    # binascii.b2a_hex(self.device.read(count)).decode('utf-8')
-                    print(str(count) + " " + str(self.device.read(count))
+                    binascii.b2a_hex(self.device.read(count)).decode('utf-8')
+                    # print(str(count) + " " + str(self.device.read(count)))
                     # print(self.ADDRESS)
                     return True
                 else :
@@ -93,6 +92,19 @@ class Laser:
             print("open port " + self.device.port + " error: " + str(ex))
             exit()
 
+    def receive(self):
+        while(self.is_running):
+            # count = self.device.in_waiting
+            # print('count: ' + str(count))
+            if self.device.inWaiting():
+                # print(binascii.b2a_hex(self.device.read(1)).decode('utf-8'))
+                self.parse_packet(binascii.b2a_hex(self.device.read(1)).decode('utf-8'))
+            # else:
+            #     exit()
+            time.sleep(0.01)
+        print("stop receive")
+
+
     def auto_measurement(self):
         data = self.HEAD
         data += self.ADDRESS
@@ -102,15 +114,18 @@ class Laser:
         data += str(int(self.ADDRESS) + int(Register.INIT.getRegister()) + int('0001') + int('0004'))
         self.device.write(binascii.a2b_hex(data))
         time.sleep(1)
-        while True:
-            # count = self.device.in_waiting
-            # print('count: ' + str(count))
-            if self.device.in_waiting:
-                # print(binascii.b2a_hex(self.device.read(1)).decode('utf-8'))
-                self.parse_packet(binascii.b2a_hex(self.device.read(1)).decode('utf-8'))
-            # else:
-            #     exit()
-            time.sleep(0.005)
+        self.is_running = True
+        t = threading.Thread(target = self.receive)
+        t.start()
+        # while True:
+        #     # count = self.device.in_waiting
+        #     # print('count: ' + str(count))
+        #     if self.device.inWaiting():
+        #         # print(binascii.b2a_hex(self.device.read(1)).decode('utf-8'))
+        #         self.parse_packet(binascii.b2a_hex(self.device.read(1)).decode('utf-8'))
+        #     # else:
+        #     #     exit()
+        #     time.sleep(0.01)
 
     def stop_auto_mode(self):
         self.device.write(binascii.a2b_hex('58'))
@@ -118,46 +133,46 @@ class Laser:
     def parse_packet(self, data):
         # print('data: ' + data)
         # print(self.STATUS)
-        match self.STATUS:
-            case Status.HEAD:
-                if data == 'aa':
-                    self.PACKET = Packet.NORMAL
-                    self.STATUS = Status.RW
-                elif data == 'ee':
-                    self.PACKET = Packet.ERROR
-                    self.STATUS = Status.RW
+        # match self.STATUS:
+        if self.STATUS == Status.HEAD:
+            if data == 'aa':
+                self.PACKET = Packet.NORMAL
+                self.STATUS = Status.RW
+            elif data == 'ee':
+                self.PACKET = Packet.ERROR
+                self.STATUS = Status.RW
                 
-            case Status.RW:
-                self.STATUS = Status.REGISTER
-            case Status.REGISTER:
-                self.STATUS = Status.REGISTER2
-                self.register += data
-            case Status.REGISTER2:
-                self.STATUS = Status.COUNT
-                self.register += data
-            case Status.COUNT:
-                self.STATUS = Status.COUNT2
-                self.count = ''
-                self.count += data
-            case Status.COUNT2:
-                self.STATUS = Status.PAYLOAD
-                self.count += data
-                self.payload = ''
+        elif self.STATUS == Status.RW:
+            self.STATUS = Status.REGISTER
+        elif self.STATUS == Status.REGISTER:
+            self.STATUS = Status.REGISTER2
+            self.register += data
+        elif self.STATUS == Status.REGISTER2:
+            self.STATUS = Status.COUNT
+            self.register += data
+        elif self.STATUS == Status.COUNT:
+            self.STATUS = Status.COUNT2
+            self.count = ''
+            self.count += data
+        elif self.STATUS == Status.COUNT2:
+            self.STATUS = Status.PAYLOAD
+            self.count += data
+            self.payload = ''
                 # print("payload count: " + self.count)
                 # print(int(self.count))
-            case Status.PAYLOAD:
-                self.payload += data
-                if len(self.payload) >= int(self.count) * 4:
-                    # print('payload: ' + self.payload)
-                    self.STATUS = Status.CHECKSUM
-            case Status.CHECKSUM:
-                self.STATUS = Status.HEAD
-                # checksum = int(self.ADDRESS) + int(self.register) + int(self.count) + int(self.payload)
-                # if checksum == int(data, 16):
-                self.parse_payload(self.register, self.payload)
-                # else:
-                #     print("checksum is worng! " + data + " with " + str(checksum))
-                self.reset()
+        elif self.STATUS == Status.PAYLOAD:
+            self.payload += data
+            if len(self.payload) >= int(self.count) * 4:
+                # print('payload: ' + self.payload)
+                self.STATUS = Status.CHECKSUM
+        elif self.STATUS == Status.CHECKSUM:
+            self.STATUS = Status.HEAD
+            # checksum = int(self.ADDRESS) + int(self.register) + int(self.count) + int(self.payload)
+            # if checksum == int(data, 16):
+            self.parse_payload(self.register, self.payload)
+            # else:
+            #     print("checksum is worng! " + data + " with " + str(checksum))
+            self.reset()
     
     def reset(self):
         self.register = ''
@@ -172,31 +187,29 @@ class Laser:
 
     def get_distance(self, data):
         distance = data[0:8]
-        # print("distance: ")
-        # print(int(distance, 16))
         self.callback.on_distance(int(distance, 16))
 
     def get_error(self, data):
         pass
 
-class result(result_callback):
-    def on_distance(self, distance):
-        print('distance: ' + str(distance))
+# class result(result_callback):
+#     def on_distance(self, distance):
+#         print('distance: ' + str(distance))
 
-    def on_error(self, error):
-        print('error: ' + error)
+#     def on_error(self, error):
+#         print('error: ' + error)
 
 
-if __name__ == '__main__':
-    args = parser.parse_args()
-    laser = Laser(args.port)
-    laser.callback = result()
-    try:
-        if laser.open():
-            laser.auto_measurement()
-    except KeyboardInterrupt:
-        print("stop auto mode")
-        laser.stop_auto_mode()
+# if __name__ == '__main__':
+#     args = parser.parse_args()
+#     laser = Laser(args.port)
+#     laser.callback = result()
+#     try:
+#         if laser.open():
+#             laser.auto_measurement()
+#     except KeyboardInterrupt:
+#         print("stop auto mode")
+#         laser.stop_auto_mode()
     
 
 
