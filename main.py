@@ -9,8 +9,8 @@ from laser_2 import Laser, result_callback
 from argparse import ArgumentParser
 import datetime as dt
 
-parser = ArgumentParser()
-parser.add_argument("-p","--port", help="serial port path", required=True)
+# parser = ArgumentParser()
+# parser.add_argument("-p","--port", help="serial port path", required=True)
 
 distance_d = 0
 mutex = threading.Lock()
@@ -31,6 +31,7 @@ class result(result_callback):
 
 def button_pressed_callback(channel):
     global laser, camera, running, distance_d
+    print("pressed!")
     if running:
         print("stop!")
         running = False
@@ -50,10 +51,11 @@ def button_pressed_callback(channel):
 if __name__ == '__main__':
 
     try:
-        args = parser.parse_args()
+        # args = parser.parse_args()
 
         #init laser module
-        laser = Laser(args.port)
+        # laser = Laser(args.port)
+        laser = Laser("/dev/ttyUSB0")
         laser.callback = result()
 
         GPIO.setmode(GPIO.BCM)
