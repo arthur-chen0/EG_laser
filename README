@@ -1,0 +1,5 @@
+sudo nano /etc/rc.loacl
+
+add the line below before "exit 0"
+
+sudo python3 /home/arthur/project/EG_laser/main.py &
