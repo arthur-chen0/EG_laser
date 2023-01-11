@@ -60,6 +60,7 @@ class Laser:
     count = ''
     payload = ''
     is_running = True
+    is_open = False
 
     def __init__(self, port, baudrate = 19200):
         self.device = serial.Serial()
@@ -69,7 +70,12 @@ class Laser:
 
     def open(self):
         try:
-            self.device.open()
+            if not self.is_open:
+                self.is_open = True
+                self.device.open()
+            else:
+                return True
+
             if self.device.is_open:
                 self.device.setDTR(False)
                 time.sleep(0.2) #Sleep 200ms to wait device ready
